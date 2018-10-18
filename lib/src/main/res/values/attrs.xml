@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <declare-styleable name="ScalableView">
+        <attr name="maxScale" format="float"/>
+        <attr name="enableScaling" format="boolean"/>
+    </declare-styleable>
+</resources>
