@@ -1,4 +1,4 @@
-package io.github.tarasantoshchuk.scalableview.app
+package io.github.tarasantoshchuk.scalableview.app.example
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -20,8 +20,30 @@ class ScalableTextView @JvmOverloads constructor(
         }
     }
 
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        return scalableViewDelegate.dispatchTouchEvent(event) {
+            super.dispatchTouchEvent(it)
+        }
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         return scalableViewDelegate.onTouchEvent(event)
+    }
+
+    fun reset() {
+        scalableViewDelegate.reset()
+    }
+
+    fun setMaxScale(maxScale: Float) {
+        scalableViewDelegate.setMaxScale(maxScale)
+    }
+
+    fun setEnableScaling(enableScaling: Boolean) {
+        scalableViewDelegate.setEnableScaling(enableScaling)
+    }
+
+    fun setEnableScrolling(enableScrolling: Boolean) {
+        scalableViewDelegate.setEnableScrolling(enableScrolling)
     }
 }

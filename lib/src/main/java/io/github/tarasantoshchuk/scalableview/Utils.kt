@@ -24,3 +24,8 @@ internal fun MotionEvent.setLocation(newLocation: PointF) {
 internal fun Float.clamp(left: Float, right: Float): Float {
     return Math.max(left, Math.min(this, right))
 }
+
+internal fun Boolean.doIfTrue(block: () -> Unit): Boolean {
+    if (this) block()
+    return this
+}

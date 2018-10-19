@@ -1,4 +1,4 @@
-package io.github.tarasantoshchuk.scalableview.app
+package io.github.tarasantoshchuk.scalableview.app.example
 
 import android.content.Context
 import android.graphics.Canvas

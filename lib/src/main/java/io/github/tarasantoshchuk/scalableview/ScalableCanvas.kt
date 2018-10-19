@@ -21,6 +21,10 @@ internal class ScalableCanvas {
         setMatrix(currentMatrix)
     }
 
+    fun getMatrix(): Matrix {
+        return currentMatrix
+    }
+
     private fun attachCanvas(canvas: Canvas) {
         innerCanvas = canvas
         innerCanvas!!.save()

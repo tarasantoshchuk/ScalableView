@@ -1,19 +1,21 @@
 package io.github.tarasantoshchuk.scalableview
 
 import android.graphics.Canvas
+import android.graphics.Matrix
 import android.graphics.PointF
 import android.support.annotation.FloatRange
 import android.util.AttributeSet
-import android.view.GestureDetector
-import android.view.MotionEvent
-import android.view.ScaleGestureDetector
-import android.view.View
+import android.view.*
 
 interface ScalableViewDelegate {
     fun setMaxScale(@FloatRange(from = 1.0) scale: Float)
     fun setEnableScaling(enableScaling: Boolean)
+    fun setEnableScrolling(enableScrolling: Boolean)
+    fun reset()
 
-    fun onTouchEvent(event: MotionEvent, block: (MotionEvent) -> Boolean = {false}): Boolean
+    fun onTouchEvent(event: MotionEvent, block: (MotionEvent) -> Boolean = { false }): Boolean
+    fun onInterceptTouchEvent(ev: MotionEvent, block: (MotionEvent) -> Boolean = { false }): Boolean
+    fun dispatchTouchEvent(event: MotionEvent, block: (MotionEvent) -> Boolean = { false }): Boolean
     fun draw(canvas: Canvas, block: (Canvas) -> Unit)
 
     companion object {
@@ -25,37 +27,80 @@ interface ScalableViewDelegate {
 
 internal class ScalableViewDelegateImpl(val view: View, attrs: AttributeSet?) : ScalableViewDelegate {
 
-    private val tempPointF: PointF
+    private val tempPointF = PointF()
 
     private var factor = 1f
-    private val pivot: PointF
+    private val pivot = PointF()
 
     private var maxScale = Float.POSITIVE_INFINITY
     private var enableScaling = true
+    private var enableScrolling = true
 
-    private val scalableCanvas: ScalableCanvas
+    private var scalingStarted = false
+
+    private val scalableCanvas = ScalableCanvas()
 
     private val scaleDetector: ScaleGestureDetector
     private val gestureDetector: GestureDetector
 
+    private val touchEventMatrix = Matrix()
+
     override fun setMaxScale(scale: Float) {
         maxScale = scale
+        factor = Math.min(factor, maxScale)
+        view.invalidate()
     }
 
     override fun setEnableScaling(enableScaling: Boolean) {
         this.enableScaling = enableScaling
     }
 
+    override fun setEnableScrolling(enableScrolling: Boolean) {
+        this.enableScrolling = enableScrolling
+    }
+
     override fun onTouchEvent(event: MotionEvent, block: (MotionEvent) -> Boolean): Boolean {
-        val scaleDetected = scaleDetector.onTouchEvent(event)
+        scalableCanvas.getMatrix().invert(touchEventMatrix)
+
+        event.transform(scalableCanvas.getMatrix())
+
+        scaleDetector.onTouchEvent(event)
         val scrollDetected = gestureDetector.onTouchEvent(event)
 
-        tempPointF.set(event.x, event.y)
-        tempPointF.scale(pivot, 1f / factor)
-        event.setLocation(tempPointF)
+        val internalTouchHandled = scalingStarted || scrollDetected
 
-        val importantForCustomTouchHandling = block(event)
-        return scaleDetected || scrollDetected || importantForCustomTouchHandling
+        event.transform(touchEventMatrix)
+
+        val customTouchHandled = block(event)
+
+        return internalTouchHandled || customTouchHandled
+    }
+
+    override fun onInterceptTouchEvent(ev: MotionEvent, block: (MotionEvent) -> Boolean): Boolean {
+        scalableCanvas.getMatrix().invert(touchEventMatrix)
+
+        ev.transform(scalableCanvas.getMatrix())
+
+        scaleDetector.onTouchEvent(ev)
+        val scrollDetected = gestureDetector.onTouchEvent(ev)
+
+        val canPerformInternalIntercept = enableScrolling || enableScaling
+
+        val internalInterceptTouch = (scalingStarted || scrollDetected) && canPerformInternalIntercept && ev.action != MotionEvent.ACTION_DOWN
+
+        ev.transform(touchEventMatrix)
+
+        val customInterceptTouch = block(ev)
+
+        return internalInterceptTouch || customInterceptTouch
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent, block: (MotionEvent) -> Boolean): Boolean {
+        scalableCanvas.getMatrix().invert(touchEventMatrix)
+
+        event.transform(touchEventMatrix)
+
+        return block(event)
     }
 
     override fun draw(canvas: Canvas, block: (Canvas) -> Unit) {
@@ -66,30 +111,37 @@ internal class ScalableViewDelegateImpl(val view: View, attrs: AttributeSet?) : 
         scalableCanvas.apply(canvas, block)
     }
 
-    private fun scale(rPivot: PointF, rFactor: Float) {
-        val newFactor = factor * rFactor
+    override fun reset() {
+        factor = 1f
+        pivot.set(0f, 0f)
 
-        if (newFactor != 1f) {
-            val newPivotX = (rFactor * (1 - factor) * pivot.x + (1 - rFactor) * rPivot.x) / (1f - newFactor)
-            val newPivotY = (rFactor * (1 - factor) * pivot.y + (1 - rFactor) * rPivot.y) / (1f - newFactor)
+        view.invalidate()
+    }
+
+    private fun scale(rPivot: PointF, rFactor: Float) {
+        val (newFactor, effectiveRFactor) = clampFactor(rFactor)
+
+        if (newFactor != 1f && effectiveRFactor != 1f) {
+            val newPivotX = (rFactor * (1 - factor) * pivot.x + (1 - effectiveRFactor) * rPivot.x) / (1f - newFactor)
+            val newPivotY = (rFactor * (1 - factor) * pivot.y + (1 - effectiveRFactor) * rPivot.y) / (1f - newFactor)
             pivot.set(newPivotX, newPivotY)
         }
 
         factor = newFactor
-
-        onPostUpdateScale()
+        clampPivot()
+        view.invalidate()
     }
 
-    private fun onPostUpdateScale() {
-        factor = factor.clamp(1f, maxScale)
+    private fun clampFactor(rFactor: Float): Pair<Float, Float> {
+        val newFactor = (rFactor * factor).clamp(1f, maxScale)
+        val effectiveRFactor = newFactor / factor
 
-        pivot.x = pivot.x.clamp( 0f, view.width.toFloat())
+        return Pair(newFactor, effectiveRFactor)
+    }
+
+    private fun clampPivot() {
+        pivot.x = pivot.x.clamp(0f, view.width.toFloat())
         pivot.y = pivot.y.clamp(0f, view.height.toFloat())
-    }
-
-    private fun reset() {
-        factor = 1f
-        pivot.set(0f, 0f)
     }
 
     private fun scroll(distanceX: Float, distanceY: Float) {
@@ -100,7 +152,8 @@ internal class ScalableViewDelegateImpl(val view: View, attrs: AttributeSet?) : 
         pivot.x += distanceX / (factor - 1f)
         pivot.y += distanceY / (factor - 1f)
 
-        onPostUpdateScale()
+        clampPivot()
+        view.invalidate()
     }
 
     init {
@@ -108,35 +161,37 @@ internal class ScalableViewDelegateImpl(val view: View, attrs: AttributeSet?) : 
         setMaxScale(arr.getFloat(R.styleable.ScalableView_maxScale, Float.POSITIVE_INFINITY))
         setEnableScaling(arr.getBoolean(R.styleable.ScalableView_enableScaling, true))
         arr.recycle()
-        tempPointF = PointF()
-        pivot = PointF()
-        scalableCanvas = ScalableCanvas()
+
         scaleDetector = ScaleGestureDetector(view.context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScaleBegin(detector: ScaleGestureDetector?): Boolean {
+                scalingStarted = true
+                return enableScaling
+            }
+
             override fun onScale(detector: ScaleGestureDetector): Boolean {
                 detector.apply {
                     tempPointF.set(focusX, focusY)
                     scale(tempPointF, scaleFactor)
-                    view.invalidate()
                 }
 
                 return true
             }
+
+            override fun onScaleEnd(detector: ScaleGestureDetector?) {
+                scalingStarted = false
+            }
         })
+
         gestureDetector = GestureDetector(view.context, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent?): Boolean {
-                return true
+                return enableScrolling
             }
 
             override fun onScroll(e1: MotionEvent?, e2: MotionEvent?, distanceX: Float, distanceY: Float): Boolean {
-                scroll(distanceX, distanceY)
-                view.invalidate()
-                return true
-            }
-
-            override fun onDoubleTap(e: MotionEvent?): Boolean {
-                reset()
-                view.invalidate()
-                return true
+                return enableScrolling
+                        .doIfTrue {
+                            scroll(distanceX, distanceY)
+                        }
             }
         })
     }
