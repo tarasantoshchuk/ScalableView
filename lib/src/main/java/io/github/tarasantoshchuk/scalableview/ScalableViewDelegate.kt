@@ -118,18 +118,21 @@ internal class ScalableViewDelegateImpl(val view: View, attrs: AttributeSet?) : 
         view.invalidate()
     }
 
-    private fun scale(rPivot: PointF, rFactor: Float) {
+    private fun scale(rPivot: PointF, rFactor: Float): Boolean {
         val (newFactor, effectiveRFactor) = clampFactor(rFactor)
 
         if (newFactor != 1f && effectiveRFactor != 1f) {
             val newPivotX = (rFactor * (1 - factor) * pivot.x + (1 - effectiveRFactor) * rPivot.x) / (1f - newFactor)
             val newPivotY = (rFactor * (1 - factor) * pivot.y + (1 - effectiveRFactor) * rPivot.y) / (1f - newFactor)
             pivot.set(newPivotX, newPivotY)
+
+            factor = newFactor
+            clampPivot()
+            view.invalidate()
+            return true
         }
 
-        factor = newFactor
-        clampPivot()
-        view.invalidate()
+        return false
     }
 
     private fun clampFactor(rFactor: Float): Pair<Float, Float> {
@@ -144,16 +147,22 @@ internal class ScalableViewDelegateImpl(val view: View, attrs: AttributeSet?) : 
         pivot.y = pivot.y.clamp(0f, view.height.toFloat())
     }
 
-    private fun scroll(distanceX: Float, distanceY: Float) {
+    private fun scroll(distanceX: Float, distanceY: Float): Boolean {
         if (factor == 1f) {
-            return
+            return false
         }
+
+        tempPointF.set(pivot)
 
         pivot.x += distanceX / (factor - 1f)
         pivot.y += distanceY / (factor - 1f)
 
         clampPivot()
-        view.invalidate()
+
+        return (tempPointF != pivot)
+                .doIfTrue {
+                    view.invalidate()
+                }
     }
 
     init {
@@ -169,12 +178,10 @@ internal class ScalableViewDelegateImpl(val view: View, attrs: AttributeSet?) : 
             }
 
             override fun onScale(detector: ScaleGestureDetector): Boolean {
-                detector.apply {
-                    tempPointF.set(focusX, focusY)
-                    scale(tempPointF, scaleFactor)
+                return detector.let {
+                    tempPointF.set(it.focusX, it.focusY)
+                    scale(tempPointF, it.scaleFactor)
                 }
-
-                return true
             }
 
             override fun onScaleEnd(detector: ScaleGestureDetector?) {
@@ -188,10 +195,7 @@ internal class ScalableViewDelegateImpl(val view: View, attrs: AttributeSet?) : 
             }
 
             override fun onScroll(e1: MotionEvent?, e2: MotionEvent?, distanceX: Float, distanceY: Float): Boolean {
-                return enableScrolling
-                        .doIfTrue {
-                            scroll(distanceX, distanceY)
-                        }
+                return enableScrolling && scroll(distanceX, distanceY)
             }
         })
     }
